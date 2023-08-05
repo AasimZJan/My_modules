@@ -11,6 +11,7 @@ import inspect
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
+import romspline
 plt.style.use('seaborn-poster')
 import os
 from scipy import interpolate, signal
@@ -26,6 +27,8 @@ except:
     sys.exit()
 from lal.series import read_psd_xmldoc
 from ligo.lw import lsctables, utils, ligolw 
+from lalframe import frread
+from glue.lal import Cache
 
 
 class binary:
@@ -98,10 +101,8 @@ class binary:
         """Returns mass ratio for a given binary system. 
         Argument: self
         Output: mass ratio (Dimensionless) (q>=1)"""
-        if self.m1 >=self.m2:
-            return self.m1/self.m2
-        else:
-            return self.m2/self.m1
+        return self.m1/self.m2  if self.m1 >=self.m2 else self.m2/self.m1
+
         
 
     def eta(self):
@@ -148,15 +149,15 @@ class binary:
         Argument: self, REAL8 time series
         Output: a COMPLEX 16 frequency series
         Note: Ensure the waveform is tapered before you perform a FFT to avoid contaminating your answer with noise."""
-        TDlen=wf.data.length
-        if TDlen!=self.pow2(TDlen):
-            TDlen=self.pow2(TDlen)
-            wf=lal.ResizeREAL8TimeSeries(wf,0,TDlen)
-        fwdplan=lal.CreateForwardREAL8FFTPlan(TDlen,0)
-        df=1/TDlen/wf.deltaT
+        TDlen = wf.data.length
+        if TDlen != self.pow2(TDlen):
+            TDlen = self.pow2(TDlen)
+            wf = lal.ResizeREAL8TimeSeries(wf,0,TDlen)
+        fwdplan = lal.CreateForwardREAL8FFTPlan(TDlen,0)
+        df = 1/TDlen/wf.deltaT
 
-        FDlen=int(TDlen/2+1)
-        wf_f=lal.CreateCOMPLEX16FrequencySeries("fft", wf.epoch, wf.f0, df, lal.HertzUnit, FDlen)
+        FDlen = int(TDlen/2+1)
+        wf_f = lal.CreateCOMPLEX16FrequencySeries("fft", wf.epoch, wf.f0, df, lal.HertzUnit, FDlen)
         lal.REAL8TimeFreqFFT(wf_f, wf, fwdplan)
         return wf_f
     
@@ -165,14 +166,14 @@ class binary:
         Argument: self, Complex16 time series
         returns: a COMPLEX 16 frequency series
         Note: Ensure the waveform is tapered before you perform a FFT to avoid contaminating your answer with noise."""
-        TDlen=wf.data.length
-        if TDlen!=self.pow2(TDlen):
-            TDlen=self.pow2(TDlen)
-            wf=lal.ResizeCOMPLEX16TimeSeries(wf,0,TDlen)
+        TDlen = wf.data.length
+        if TDlen != self.pow2(TDlen):
+            TDlen = self.pow2(TDlen)
+            wf = lal.ResizeCOMPLEX16TimeSeries(wf,0,TDlen)
         fwdplan=lal.CreateForwardCOMPLEX16FFTPlan(TDlen,0)
-        df=1/TDlen/wf.deltaT
+        df = 1/TDlen/wf.deltaT
         
-        wf_f=lal.CreateCOMPLEX16FrequencySeries("fft", wf.epoch, wf.f0, df, lal.HertzUnit, TDlen)
+        wf_f = lal.CreateCOMPLEX16FrequencySeries("fft", wf.epoch, wf.f0, df, lal.HertzUnit, TDlen)
         lal.COMPLEX16TimeFreqFFT(wf_f, wf, fwdplan)
         return wf_f
 
@@ -180,14 +181,14 @@ class binary:
         """Takes in a FD waveform and returns it in Time Domain.
         Argument: Waveform (lal object COMPLEX16FrequencySeries)
         returns: a time series (REAL8TimeSeries)"""
-        FDlen=wf.data.length
-        TDlen=2*(FDlen-1)
+        FDlen = wf.data.length
+        TDlen = 2*(FDlen-1)
         assert TDlen == self.pow2(TDlen)  # this needs more checking
-        revplan=lal.CreateReverseREAL8FFTPlan(TDlen, 0)
-        dt=1/TDlen/wf.deltaF   #this needs more checking
+        revplan = lal.CreateReverseREAL8FFTPlan(TDlen, 0)
+        dt = 1/TDlen/wf.deltaF   #this needs more checking
 
 
-        wf_t=lal.CreateREAL8TimeSeries("rev_fft", wf.epoch, wf.f0, dt, lal.DimensionlessUnit, TDlen)
+        wf_t = lal.CreateREAL8TimeSeries("rev_fft", wf.epoch, wf.f0, dt, lal.DimensionlessUnit, TDlen)
         lal.REAL8FreqTimeFFT(wf_t, wf, revplan)
         return wf_t
     
@@ -201,8 +202,8 @@ class binary:
         Argument: self, h_plus (REAL 8 Time series), h_cross (REAL 8 Time series)
         Returns: time array with peak at 0 (numpy array)"""
         time=np.arange(0,h_p.data.length * h_p.deltaT, h_p.deltaT)
-        time = time + h_p.epoch
-        #time=time- time[self.max_strain(h_p.data.data,h_c.data.data)[1]] 
+        #time = time + h_p.epoch
+        time=time- time[self.max_strain(h_p.data.data,h_c.data.data)[1]] 
         return time
 
     def fvals(self, h_p):
@@ -285,7 +286,7 @@ class binary:
 
         return snr
 
-    def plot_waveforms(self, wfs, labels = None , domain = "TD", x_lim = None, save_path = None, dpi =300):
+    def plot_waveforms(self, wfs, labels = None , domain = "TD", x_lim = None, save_path = None, dpi =200):
         """Function to quickly plot both time domain and frequency domain waveforms. Takes in an array of waveforms, respective labels (optional), x_lim (range of x-axis (optional)), save_path and dpi"""
         if not(domain in ["TD", "FD"]):
             print("domain can only be 'TD' or 'FD'. Exiting")
@@ -312,7 +313,16 @@ class binary:
         plt.show()
 
 
-  
+    def frame_data_to_hoft(self, fname, channel= 'H1:FAKE-STRAIN', start= None, stop= None):
+        with open(fname) as cfile:
+            cachef = Cache.fromfile(cfile)
+        cachef = cachef.sieve(ifos=channel[:1])
+
+        duration = stop - start if None not in (start, stop) else None
+
+        tmp = frread.read_timeseries(cachef, channel, start=start,duration=duration,verbose=True,datatype='REAL8')
+        return tmp
+
     def LISA_res(self, wf1, wf2, res1, res2, det, alpha=4, flow=20, fhigh=2046, verbose=False, mismatch_overide=False, snr_overide=False, extra=False):
         """Returns 1/minimum resolution (M^-1) required for indistinguishible PE."""
         assert len(wf1)==len(wf2)==len(det),"Inconsistent input."
@@ -351,11 +361,6 @@ class binary:
         else:
             return rec_delta
 
-####in works####
-    def xml_to_binary(file,event=0):
-        xmldoc = utils.load_filename(fname ,contenthandler = cthdler)
-        sim_insp = lsctables.SimInspiralTable.get_table(xmldoc)
-
     def no_cycles(self,hp):
         peak=np.argmax(hp.data.data**2)
         sign=hp.data.data[:peak]/np.abs(hp.data.data[:peak])
@@ -372,21 +377,24 @@ class binary:
         cycles=len(index)-1 #subtract the initial half cycle for safety
         return cycles, index
 
-    def condition_TD(self, hp, hc=False, beta=8, taper_cycles=6):
+    def condition_TD(self,hp, hc=None,  beta=8, taper_cycles=6):
         """Only tapers the left hand side of the waveform. Doesn't have the capacity to taper half cycles. Keep in mind it will change the passed object"""
-        if hc!=False:
+
+        if hc is not None:
             #Unwrap phase and count number of cycles
             time=self.tvals(hp,hc)
             phase = np.unwrap(np.arctan2(hc.data.data, hp.data.data))
             phase_0 = phase[0]
-            num_cycles = (phase[np.argmax(time>0)]-phase_0)/(2*np.pi)
+            #num_cycles = (phase[np.argmax(time>0)]-phase_0)/(2*np.pi)
+            num_cycles = np.abs((phase[np.argmax(time>0)]-phase_0)/(2*np.pi))
             print(f"No of cycles till peak {num_cycles}")
             #Define how many cycles to taper
             taper_cycles = taper_cycles if num_cycles>10 else 1.5
             print("taper_cycles = "+str(taper_cycles))
         
             #Find index and time to begin and end taper based on number of cycles to taper
-            index_at_end_phase = np.argmax(phase > phase_0+2*np.pi*taper_cycles)
+            #index_at_end_phase = np.argmax(phase > phase_0+2*np.pi*taper_cycles)
+            index_at_end_phase = np.argmax(np.abs(phase) > np.abs(phase_0)+2*np.pi*taper_cycles)
             time_end = time[index_at_end_phase]
 
             
@@ -444,7 +452,10 @@ class binary:
         # hp.data.data = hc.data.data + tmp
         return(hoft)
 
-####################################################WAVEFORM GENERATION #######################################
+    def Ylm(self, inclination, phiref, l ,m, s = -2):
+        """Returns spin weighted spherical harmonics, s is to -2 as default."""
+        return lal.SpinWeightedSphericalHarmonic(inclination,phiref,s,l,m)
+    ####################################################WAVEFORM GENERATION #######################################
     def NRRIFT_to_hoft(self, path_to_xml, NR_hdf5_filename,lmax, det, event = 0):
         import NRWaveformCatalogManager3 as nrwf
         import RIFT.lalsimutils as lalsimutils
@@ -470,11 +481,11 @@ class binary:
 
 
 
-    def lalsim_TD(self,tapering=False):
+    def lalsim_TD(self,taper=False):
         """Returns h_plus(t), h_cross(t) and time array (0 at peak), with default approx being SEOBNRv4. Can take in FD approximants too.
         Argument: self
         Output: h_plus(t) (REAL8TimeSeries), h_cross(t) (REAL8TimeSeries) and time array (0 at peak) (numpy array)"""
-        if lalsim.SimInspiralImplementedTDApproximants(getattr(lalsim, self.approx))==1 and tapering==False:
+        if lalsim.SimInspiralImplementedTDApproximants(getattr(lalsim, self.approx))==1 and taper==False:
             print(f"Using SimInspiraChooseTDWaveform {self.approx}")
 
             hl_p, hl_c=lalsim.SimInspiralChooseTDWaveform(self.m1, self.m2, self.s1x, self.s1y, self.s1z, self.s2x, self.s2y, self.s2z, self.dist, self.incl, \
@@ -502,9 +513,9 @@ class binary:
         #ht=lal.AddREAL8TimeSeries(hl_p, hl_c)
         return hl_p, hl_c, time
 
-    def lalsim_FD(self,tapering=False):
+    def lalsim_FD(self,taper=False):
         """Returns h_p, h_c and frequency array with the default being IMRPhenomD. Can take TD approximants and output h_p, h_c in FD"""
-        if lalsim.SimInspiralImplementedFDApproximants(getattr(lalsim, self.approx))==1 and tapering==False:
+        if lalsim.SimInspiralImplementedFDApproximants(getattr(lalsim, self.approx))==1 and taper==False:
             print(f"Using SimInspiraChooseFDWaveform {self.approx}")
             hf_p, hf_c=lalsim.SimInspiralChooseFDWaveform(self.m1, self.m2, self.s1x, self.s1y, self.s1z, self.s2x, self.s2y, self.s2z, self.dist, self.incl, \
             self.phiref, self.psi, self.eccentricity, self.meanPerAno, self.df, self.fmin, self.fmax, self.fref, 
@@ -533,66 +544,217 @@ class binary:
             # frequency=np.arange(hf_c.f0, df*len(hf_c.data.data), df)
         return hf_p, hf_c, frequency
 
-    def NR_to_lalsimTD(self, path_to_hdf5, mtotal= 100 * lal.MSUN_SI,  lmax= False, only_mode=False, set_fmin= False, set_fref= False, tapering = True):
+    def NR_to_lalsimTD(self, path_to_hdf5, mtotal= None, lmax= None, only_mode=None, taper = True, use_lalsim = True, taper_percent = 10):
         """Takes in a NR waveform in  LVK hdf5 format, binary object and total mass in kg (default is 100 MSUN) and generates a TD waveform but as a lal REAL8TIMESeries. \
             The binary object that you use to call this function will populate extrinsic and detection variables. \
-            The file only has mass (total mass = 1) and spin information.
+            The h5 file only has mass (total mass = 1) and spin information.
         Argument = self, path/to/NR/hdf5 file (string), mtotal (in kg) (default is 100 MSUN)
         Output = h_plus(t) (REAL8TimeSeries), h_cross(t) (REAL8TimeSeries) and time array (0 at peak) (numpy array)"""
-        if tapering:
+        if mtotal == None:
+            mtotal= (self.m1 + self.m2) 
+
+        if taper == True  and use_lalsim ==True:
             print(f"Using SimInspiralTD NR_hdf5")
-        else:
+        if taper == False and use_lalsim ==True:
             print(f"Using SimInspiralChooseTDWaveform NR_hdf5")
+
         data_1 = h5py.File(path_to_hdf5,"r")
         m1 = data_1.attrs["mass1"] * mtotal 
         m2 = data_1.attrs["mass2"] * mtotal
         fmin = data_1.attrs["f_lower_at_1MSUN"] * lal.MSUN_SI/mtotal
         fref = self.fref
         print(f"Smallest possible fmin for this waveform {fmin} Hz. fmin at 1 solar mass is {data_1.attrs['f_lower_at_1MSUN']}")
-        if self.fmin < fmin or set_fmin == True:
+        if (self.fmin < fmin):
             fmin = np.ceil(fmin)
             print(f"Can't have fmin less than that of the NR waveform. Defaulting to fmin={fmin} Hz.")
 
         else:
             fmin = self.fmin
 
-        if set_fref:
-            fref = fmin
         s1x, s1y, s1z, s2x, s2y, s2z = lalsim.SimInspiralNRWaveformGetSpinsFromHDF5File(self.fref, mtotal/lal.MSUN_SI, path_to_hdf5)
-        modes=[]
         params = lal.CreateDict()
-        if only_mode != False and lmax == False:
-            for j in only_mode:
-                modes.append(j)
-        elif only_mode == False and lmax != False:
-                for l in range(2,lmax+1):
-                    for m in range(-l,0):
-                        modes.append((l,m))
-                    for m in range(1,l+1):
-                        modes.append((l,m))
-        else:
-            assert only_mode == False and lmax == False,"Inconsistent input, use either lmax or only_mode."
+        modes = []
+        if only_mode == None and lmax == None:
             lmax = data_1.attrs["Lmax"]
+        if only_mode==None and lmax is not None:
             for l in range(2,lmax+1):
                 for m in range(-l,0):
                     modes.append((l,m))
                 for m in range(1,l+1):
                     modes.append((l,m))
+        if only_mode is not None and lmax is None:
+            for j in only_mode:
+                modes.append(j)
+        if only_mode is not None and lmax is not None:
+            print("Inconsistent input, use either lmax or only_mode.")
+            sys.exit()
         print(f"modes used = {modes}")
-        ma = lalsim.SimInspiralCreateModeArray()
-        for l,m in modes:
-            lalsim.SimInspiralModeArrayActivateMode(ma, l, m)
-        lalsim.SimInspiralWaveformParamsInsertModeArray(params, ma)
-        lalsim.SimInspiralWaveformParamsInsertNumRelData(params, path_to_hdf5)
-        print(f"Generating waveform with m1 = {m1/lal.MSUN_SI:0.4f} MSUN, m2 = {m2/lal.MSUN_SI:0.4f} MSUN \n s1 = {s1x, s1y, s1z}, s2 = {s2x, s2y, s2z}\n fmin = {fmin} Hz, fref= {self.fref}")
-        if tapering:
-            h_p, h_c = lalsim.SimInspiralTD(m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, self.dist, self.incl, \
-            self.phiref, self.psi, self.eccentricity, self.meanPerAno, self.dt, fmin, fref, params, lalsim.NR_hdf5 )
+        # if only_mode is and lmax == False:
+        #     for j in only_mode:
+        #         modes.append(j)
+        # elif only_mode == False and lmax != False:
+        #         for l in range(2,lmax+1):
+        #             for m in range(-l,0):
+        #                 modes.append((l,m))
+        #             for m in range(1,l+1):
+        #                 modes.append((l,m))
+        # else:
+        #     assert only_mode == None and lmax == None,"Inconsistent input, use either lmax or only_mode."
+        #     lmax = data_1.attrs["Lmax"]
+        #     for l in range(2,lmax+1):
+        #         for m in range(-l,0):
+        #             modes.append((l,m))
+        #         for m in range(1,l+1):
+        #             modes.append((l,m))
+        # print(f"modes used = {modes}")
+        if use_lalsim:
+            ma = lalsim.SimInspiralCreateModeArray()
+            for l,m in modes:
+                lalsim.SimInspiralModeArrayActivateMode(ma, l, m)
+            lalsim.SimInspiralWaveformParamsInsertModeArray(params, ma)
+            lalsim.SimInspiralWaveformParamsInsertNumRelData(params, path_to_hdf5)
+            print(f"Generating waveform with m1 = {m1/lal.MSUN_SI:0.4f} MSUN, m2 = {m2/lal.MSUN_SI:0.4f} MSUN \n s1 = {s1x, s1y, s1z}, s2 = {s2x, s2y, s2z}\n fmin = {fmin} Hz, fref= {self.fref}")
+            if taper:
+                h_p, h_c = lalsim.SimInspiralTD(m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, self.dist, self.incl, \
+                self.phiref, 0.0, self.eccentricity, self.meanPerAno, self.dt, fmin, fref, params, lalsim.NR_hdf5 )
+            else:
+                h_p, h_c = lalsim.SimInspiralChooseTDWaveform(m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, self.dist, self.incl, \
+                self.phiref, 0.0, self.eccentricity, self.meanPerAno, self.dt, fmin, fref, params, lalsim.NR_hdf5 )
         else:
-            h_p, h_c = lalsim.SimInspiralChooseTDWaveform(m1, m2, s1x, s1y, s1z, s2x, s2y, s2z, self.dist, self.incl, \
-            self.phiref, self.psi, self.eccentricity, self.meanPerAno, self.dt, fmin, fref, params, lalsim.NR_hdf5 )
+            taper_percent = taper_percent if taper == True else 0
+            hlm = self.NR_to_lalsimTD_modes(path_to_hdf5=path_to_hdf5, lmax =lmax, only_mode=only_mode, mtotal= mtotal, taper_percent= taper_percent)
+            keys = list(hlm.keys())
+            for i in range(len(keys)):
+                if i == 0 :
+                    tmp = hlm[keys[i]].data.data * self.Ylm(self.incl,-self.phiref, keys[i][0], keys[i][1])
+                else:
+                    tmp +=hlm[keys[i]].data.data * self.Ylm(self.incl,-self.phiref, keys[i][0], keys[i][1])
+
+            h_p = lal.CreateREAL8TimeSeries("hlm",0,0, self.dt,lal.DimensionlessUnit,len(tmp))
+            h_p.data.data = np.real(tmp)
+            h_c = lal.CreateREAL8TimeSeries("hlm",0,0, self.dt,lal.DimensionlessUnit,len(tmp))
+            h_c.data.data = -np.imag(tmp)
 
         return h_p, h_c, self.tvals(h_p,h_c)
+    
+    def NR_to_lalsimTD_modes(self, path_to_hdf5, lmax= None, only_mode=None, mtotal =None, taper_percent = 10, beta = 8, verbose = False):
+        """Takes in an NR h5 file and uses romspline interpolation to generate hlm. Outputs a hlm dict. The binary class will only populate distance and deltaT, intrinsic params are set by the simulation/file and other extrinsic params either go into detector response or Ylm.
+        Note: Would need to see how precessing waveforms work with this, considering I would need to change frames depending on fref."""
+
+        
+        assert 0<=taper_percent <=100, "taper_percent should be between 0 and 100."
+        #For unit conversion
+        MSUN_sec = lal.G_SI/lal.C_SI**3
+        if mtotal == None:
+            mtot_in_sec= (self.m1 + self.m2) * MSUN_sec
+        else:
+            mtot_in_sec= mtotal *  MSUN_sec
+        dist_in_sec = self.dist * 1/lal.C_SI
+
+        #just to know what time array we are dealing with
+        data_1 = h5py.File(path_to_hdf5)
+        
+        m1 = data_1.attrs["mass1"] * mtotal 
+        m2 = data_1.attrs["mass2"] * mtotal
+        fmin = data_1.attrs["f_lower_at_1MSUN"] * lal.MSUN_SI/mtotal
+        if verbose:
+            print(f"Smallest possible fmin for this waveform {fmin} Hz. fmin at 1 solar mass is {data_1.attrs['f_lower_at_1MSUN']}")
+        s1x, s1y, s1z, s2x, s2y, s2z = lalsim.SimInspiralNRWaveformGetSpinsFromHDF5File(self.fref, mtotal/lal.MSUN_SI, path_to_hdf5)
+        print(f"Generating waveform with m1 = {m1/lal.MSUN_SI:0.4f} MSUN, m2 = {m2/lal.MSUN_SI:0.4f} MSUN \n s1 = {s1x, s1y, s1z}, s2 = {s2x, s2y, s2z}\n fmin = {fmin} Hz")
+
+        #Which modes to get
+        modes = []
+        if only_mode == None and lmax == None:
+            lmax = data_1.attrs["Lmax"]
+        if only_mode==None and lmax is not None:
+            for l in range(2,lmax+1):
+                for m in range(-l,0):
+                    modes.append((l,m))
+                for m in range(1,l+1):
+                    modes.append((l,m))
+        if only_mode is not None and lmax is None:
+            for j in only_mode:
+                modes.append(j)
+        if only_mode is not None and lmax is not None:
+            print("Inconsistent input, use either lmax or only_mode.")
+            sys.exit()
+        print(f"modes used = {modes}")
+
+        #interpolating using romspline
+        hlm = {}
+
+        for i in range(len(modes)):
+            amp22_time_0=np.array(data_1[f"phase_l{modes[i][0]}_m{modes[i][1]}"]["X"])
+
+            amp = romspline.readSpline(path_to_hdf5, f"amp_l{modes[i][0]}_m{modes[i][1]}")
+            phase = romspline.readSpline(path_to_hdf5, f"phase_l{modes[i][0]}_m{modes[i][1]}")
+            
+            amp22_time_0 = np.arange(np.min(amp22_time_0), np.max(amp22_time_0), self.dt/mtot_in_sec)
+            generated_amp = amp(amp22_time_0 )
+            generated_phase = phase(amp22_time_0 )
+            generated_phase = self.unwind_phase(generated_phase)
+
+            #tapering
+            tvals = np.arange(0, self.dt * len(generated_amp), self.dt)
+            if 100 >= taper_percent > 0: #percent defined with respect to peak time, 100 percent mean taper all the way to peak
+                peak_index = generated_amp.argmax()
+                time_peak = tvals[peak_index]
+                taper_time = time_peak * taper_percent/100
+                index_taper = np.abs(tvals-taper_time).argmin()
+
+                time_start = tvals[np.argwhere(generated_amp > 0)[0][0]]
+                width = tvals[index_taper] - time_start
+                winlen = 2 * int(width / self.dt)
+                window = np.array(signal.get_window(('kaiser', beta), winlen))
+                xmin = int((time_start - tvals[0]) / self.dt)
+                xmax = xmin + winlen//2
+                if verbose and i == 0:
+                    print(f"total time = {tvals[-1]}s, taper till {tvals[index_taper]} which is {tvals[index_taper]/time_peak * 100} percent.")
+                    print(time_start, tvals[index_taper], xmin, xmax)
+                generated_amp[xmin:xmax] *= window[:winlen//2]
+                
+                
+
+            wf_data = mtot_in_sec/dist_in_sec * generated_amp * np.exp(1j*generated_phase)
+
+            max_Re, max_Im = np.max(np.real(wf_data)), -np.max(np.imag(wf_data))
+            print(f"Reading mode {modes[i]}, max for this mode: {max_Re, max_Im}")
+            wf = lal.CreateCOMPLEX16TimeSeries("hlm",0,0,self.dt,lal.DimensionlessUnit,len(wf_data))
+            wf.data.data = wf_data
+            hlm[modes[i][0],modes[i][1]] = wf
+        return hlm
+    
+    def unwind_phase(self, phase,thresh=5.):
+        """
+        Unwind an array of values of a periodic variable so that it does not jump
+        discontinuously when it hits the periodic boundary, but changes smoothly
+        outside the periodic range.
+
+        Note: 'thresh', which determines if a discontinuous jump occurs, should be
+        somewhat less than the periodic interval. Empirically, 5 is usually a safe
+        value of thresh for a variable with period 2 pi.
+
+        Fast method: take element-by-element differences, use mod 2 pi, and then add
+        """
+        cnt = 0 # count number of times phase wraps around branch cut
+        length = len(phase)
+        unwound = np.zeros(length)
+        delta = np.zeros(length)
+
+        unwound[0] =phase[0]
+        delta = np.mod(phase[1:] - phase[:-1]+np.pi,2*np.pi)-np.pi                 # d(n)= p(n+1)-p(n) : the step forward item. The modulus is positive, so use an offset. The phase delta should be ~ 0 for each step
+        unwound[1:] =unwound[0]+np.cumsum(delta)            # d(n)+d(n-1)=p(n)
+    #    print delta, unwound
+
+        # unwound[0] = phase[0]
+        # for i in range(1,length):
+        #     if phase[i-1] - phase[i] > thresh: # phase wrapped forward
+        #         cnt += 1
+        #     elif phase[i] - phase[i-1] > thresh: # phase wrapped backward
+        #         cnt -= 1
+        #     unwound[i] = phase[i] + cnt * 2. * np.pi
+        return unwound
+
 
 #######################################MISMATCH###########################################
     def resample_psd(self, psd, df=None):   #this acts weird due to non integer steps size, need to test it
@@ -604,7 +766,7 @@ class binary:
         return new_frequency, interp(new_frequency)
 
 
-    def mismatch(self, wf1, wf2, flow=20, fhigh=2046, psd="H1", time_series=False, plots=False, verbose=False):
+    def mismatch(self, wf1, wf2, flow=20, fhigh=2046, psd="H1", time_series=False, plots=False, verbose=False, phase_max = True):
         """Calculates mismatch (maximised over time and phase) between two waveforms at a given set of parameters and for a given psd. 
         Starts with h(t) (complex meaning h_p - ih_c) of the approximants. 
         Potential tests: do we always need to have a double sided FD wf or single sided will work. .
@@ -615,6 +777,8 @@ class binary:
         """
         #print("WARNING: THIS FUNCTION WILL PAD THE WAVEFORM. ")
         ####Fourier Transform of approx1.######################
+        if verbose:
+            print(f"Phase maximization == {phase_max}")
         ht1_p, ht1_c=wf1[0],wf1[1]
 
         TDlen_1=int(self.pow2(1/ht1_p.deltaT/self.df)) #if we want a particular deltaF, that's why everything needs to be a power of 2
@@ -713,21 +877,33 @@ class binary:
         rhoSeries = np.abs(ovlp.data.data)
         rho = rhoSeries.max()
         if verbose:
-            print(f"max innerproduct ={rho}")
+            print(f"max innerproduct = {rho}")
         if plots:
             try:
                 os.path.exists(plots)
                 print("Not yet implemented")
             except:
                 print("----Provided path doesn't exist. Skipping plots----")
-                pass
-        if time_series==True:
-            print(f"Output: mismatch, overlap array, index of max overlap, time series for overlap array, norm array")
-            return (1-rho/val_1/val_2, ovlp,np.where(rhoSeries==rho)[0][0],time_series,[val_1,val_2])
-        else:
-            return(1-rho/val_1/val_2)
 
-    def mismatch_real(self, wf1, wf2, flow=20, fhigh=2046, psd="H1", time_series=False, plots=False, verbose=False):
+        if time_series == True and phase_max == True:
+            match = rho/val_1/val_2
+            return (1-match, ovlp, rho, [val_1,val_2])
+        
+        if time_series == False and phase_max ==True:
+            match = rho/val_1/val_2
+            return 1-match
+        
+        if time_series == True and phase_max == False:
+            time_shift_series = np.real(ovlp.data.data)
+            match = time_shift_series.max()/val_1/val_2
+            return(1-match, ovlp, time_shift_series.max(), [val_1,val_2])
+        
+        if time_series == False  and phase_max == False:
+            time_shift_series = np.real(ovlp.data.data)
+            match = time_shift_series.max()/val_1/val_2
+            return 1-match
+
+    def mismatch_real(self, wf1, wf2, flow=20, fhigh=2046, psd="H1", time_series=False, plots=False, verbose=False, phase_max = True):
         """Calculates mismatch (maximised over time and phase) between two waveforms at a given set of parameters and for a given psd. 
         Starts with h(t) (real) of the approximants. 
         Potential tests: do we always need to have a double sided FD wf or single sided will work. .
@@ -738,6 +914,8 @@ class binary:
         """
         #print("WARNING: THIS FUNCTION WILL PAD THE WAVEFORM. ")
         ####Fourier Transform of approx1.######################
+        if verbose:
+            print(f"Phase maximization == {phase_max}")
         ht1= wf1
 
         TDlen_1=int(self.pow2(1/ht1.deltaT/self.df)) #if we want a particular deltaF, that's why everything needs to be a power of 2
@@ -805,7 +983,7 @@ class binary:
         try:
             tmp[i_min:i_max]=1/data[i_min:i_max]
         except Exception as e:
-            print(f"Cannot proceed (potentially due to broadcasting error). It might be due to fhigh being greater than Nyquist frequency {1/ht2.deltaT/2} Hz.")
+            print(f"Cannot proceed (potentially due to broadcasting error). It might be due to fhigh {fhigh} being greater than Nyquist frequency {1/ht2.deltaT/2} Hz.")
             print(e)
             sys.exit(0)
         psd_new=np.zeros(TDlen_1)
@@ -850,13 +1028,125 @@ class binary:
             except:
                 print("----Provided path doesn't exist. Skipping plots----")
                 pass
-        if time_series==True:
-            time_series=np.arange(0,deltaT*len(rhoSeries),deltaT)
-            print(f"Output: mismatch, overlap array, index of max overlap, time series for overlap array, norm array")
-            return (1-rho/val_1/val_2, ovlp,np.where(rhoSeries==rho)[0][0],time_series,[val_1,val_2])
-        else:
-            return(1-rho/val_1/val_2)
+        if time_series == True and phase_max == True:
+            match = rho/val_1/val_2
+            return (1-match, ovlp, rho, [val_1,val_2])
+        
+        if time_series == False and phase_max ==True:
+            match = rho/val_1/val_2
+            return 1-match
+        
+        if time_series == True and phase_max == False:
+            time_shift_series = np.real(ovlp.data.data)
+            match = time_shift_series.max()/val_1/val_2
+            return(1-match, ovlp, time_shift_series.max(), [val_1,val_2])
+        
+        if time_series == False  and phase_max == False:
+            time_shift_series = np.real(ovlp.data.data)
+            match = time_shift_series.max()/val_1/val_2
+            return 1-match
+###Inner products
 
+    def IP_complex(self, wf1, wf2, flow=20, fhigh=2046, psd="H1", time_series=False, verbose=False, time_max = True):
+        """Calculates mismatch (maximised over time and phase) between two waveforms at a given set of parameters and for a given psd. 
+        Starts with h(t) (complex meaning h_p - ih_c) of the approximants. 
+        optional: time_series = outputs mismatch time series and the maximum of that series gives you the time maximimsed mismatch, verbose = give more information
+         
+        """
+        ####Fourier Transform of wf1######################
+
+        assert wf1.deltaT == wf2.deltaT, "Both timeseries should have the same deltaT."
+        TDlen_1=int(self.pow2(1/wf1.deltaT/self.df)) #if we want a particular deltaF, that's why everything needs to be a power of 2
+        assert TDlen_1>=wf1.data.length,f"The deltaF you requested cannot be used without losing information. Based on your params df <= {1/self.dt/wf1.data.length}. Consider decreasing deltaF or increasing fmin if you\
+            really want to use this deltaF"
+        lal.ResizeCOMPLEX16TimeSeries(wf1, 0, TDlen_1)
+
+        deltaF_1=1/TDlen_1/wf1.deltaT
+        hf_1=lal.CreateCOMPLEX16FrequencySeries("ht1_fft",wf1.epoch,wf1.f0,deltaF_1,lal.HertzUnit,TDlen_1)
+        fwd=lal.CreateForwardCOMPLEX16FFTPlan(TDlen_1, 0)
+        lal.COMPLEX16TimeFreqFFT(hf_1,wf1,fwd)
+
+        ####Fourier transform of wf2########################
+        TDlen_2=int(self.pow2(1/wf2.deltaT/self.df)) #if we want a particular deltaF, that's why everything should be a power of 2
+        assert TDlen_2>=wf2.data.length, f"The deltaF you requested cannot be used without losing information. Based on your params deltaF <= {1/self.dt/wf2.data.length}. Consider decreasing deltaF or increasing fmin if you\
+            really want to use this deltaF"
+        lal.ResizeCOMPLEX16TimeSeries(wf2, 0, TDlen_2)
+
+
+        deltaF_2=1/TDlen_2/wf2.deltaT
+        hf_2=lal.CreateCOMPLEX16FrequencySeries("ht_fft",wf2.epoch,wf2.f0,deltaF_2,lal.HertzUnit,TDlen_2)
+        fwd=lal.CreateForwardCOMPLEX16FFTPlan(TDlen_2, 0)
+        lal.COMPLEX16TimeFreqFFT(hf_2,wf2,fwd)
+
+        if verbose:
+            print(f"TDlen_1 = {TDlen_1}, TDlen_2 {TDlen_2}")
+        assert deltaF_1==deltaF_2 and TDlen_1==TDlen_2,"deltaF and FDlen should be the same. Probably your waveforms don't have the same deltaT or same number of points in time series" #ht1_p.length and ht2_plength can be different, depends on approximant, need not a power of 2
+        if deltaF_1 != self.df:
+            print(f"Requested deltaF could not be used (probably not a power of 2). Instead the deltaF is {deltaF_1}. The psd has been resampled to reflect that change but that might introduce some errors.")
+
+
+        #####double sided psd
+        #####this psd takes into account the intergation range, it has non zero value in the range and zero outside the range.
+        curr_path=inspect.getfile(inspect.currentframe())
+        index_path=curr_path.find("binary")
+        if psd == "H1":
+            psd=curr_path[:index_path]+"/PSD/LIGO_H1.txt" #deltaF=1./8 Hz
+            #psd="/Users/aasim/Desktop/Research/Codes/My_modules/PSD/LIGO_RIFT.txt"  #deltaF=1./8 Hz
+        if psd == "L1":
+            psd=curr_path[:index_path]+"/PSD/LIGO_L1.txt"
+        if psd == "V1":
+            psd=curr_path[:index_path]+"/PSD/LIGO_V1.txt"
+        if psd == "ET":
+            psd=curr_path[:index_path]+"/PSD/ET.txt"
+        if psd == "CE":
+            psd=curr_path[:index_path]+"/PSD/CE.txt"
+        if psd == "LISA":
+             psd=curr_path[:index_path]+"/PSD/LISA.txt"
+
+        print(f"Integrating from flow={flow} Hz, fhigh={fhigh} Hz")
+        if psd == "Flat":
+            frequency = np.arange(flow-10*hf_1.deltaF, fhigh+10*hf_1.deltaF,hf_1.deltaF)
+            data = np.ones(len(frequency))
+        else:
+            frequency, data=self.resample_psd(psd, df=hf_1.deltaF)
+        i_min=int((flow-frequency[0])/hf_1.deltaF)  
+        i_max=int((fhigh-frequency[0])/hf_1.deltaF)
+        
+        tmp=np.zeros(int(hf_1.data.length/2+1))
+        try:
+            tmp[i_min:i_max]=1/data[i_min:i_max]
+        except Exception as e:
+            print(f"Cannot proceed (potentially due to broadcasting error). It might be due to fhigh being greater than Nyquist frequency {1/wf2.deltaT/2} Hz.")
+            print(e)
+            sys.exit(0)
+        psd_new=np.zeros(hf_1.data.length)
+        psd_new[:len(tmp)]=tmp[::-1]    #[-N2--->0]
+        psd_new[len(tmp)-1:]=tmp[:-1]   #[0--->N/2)   #zero index filled twice, +N/2 not there
+
+        # # ##########################################
+        if time_max==True:
+            revplan=lal.CreateReverseCOMPLEX16FFTPlan(self.pow2(hf_1.data.length), 0)
+            intgd = lal.CreateCOMPLEX16FrequencySeries("Inner product",lal.LIGOTimeGPS(0.), 0., hf_1.deltaF,
+                    lal.HertzUnit, self.pow2(hf_1.data.length))
+            deltaT=1/hf_1.deltaF/self.pow2(hf_1.data.length)
+            ovlp = lal.CreateCOMPLEX16TimeSeries("Complex inner product",lal.LIGOTimeGPS(0.), 0., deltaT, lal.DimensionlessUnit,
+                    self.pow2(hf_1.data.length))
+            ######only sum over a specific frequency range
+            intgd.data.data = 4 * np.conj(hf_1.data.data) * hf_2.data.data * psd_new
+            #####maximising over time and phase (lalsimutils.py)
+            lal.COMPLEX16FreqTimeFFT(ovlp, intgd, revplan)
+            #overlap_series = np.real(ovlp.data.data)
+            overlap_series = ovlp.data.data
+            #overlap_max = overlap_series.max()
+            tvals = self.tvals_det(ovlp)
+            #ime_shift = tvals[overlap_series.argmax()]
+
+            return overlap_series ,tvals
+        
+        else:
+            IP = np.sum(4 * np.conj(hf_1.data.data) * hf_2.data.data * psd_new) * deltaF_1
+            return IP
+        
     def choosewaveformparams_to_binary(self, p):
         """Takes in RIFT's ChooseWaveformParams object and populates binary"""
         ##intrinic variables
