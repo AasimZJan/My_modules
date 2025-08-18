@@ -120,7 +120,7 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
         "start_state": get_start_state_from_prior(sampler_dict),
         "iterations": 1000,
         "burnin_iterations": 6000,
-        "thin_by": 0,
+        "thin_by": 1,
         "store": True,
         "h5_file": os.path.join(os.getcwd(), "eryn_output.h5"),
     }
@@ -129,6 +129,11 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
             sampler_dict[key] = val
             if verbose:
                 print(f"[initiate_and_run_eryn_sampler] Setting default for '{key}' → {val}")
+    
+    # some common mistakes
+    if sampler_dict['thin_by'] <=0:
+        print(f'Warning: Cannot have "thin_by" be <= 0, setting it to default of {defaults["thin_by"]}')
+        sampler_dict['thin_by'] = defaults['thin_by']
     	
     # get branches and number of branches from the dictionary
     branch_names = list(sampler_dict['models'].keys())
