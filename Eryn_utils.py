@@ -128,7 +128,7 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
         if key not in sampler_dict:
             sampler_dict[key] = val
             if verbose:
-                print(f"[initiate_and_run_eryn_sampler] Setting default for '{key}' → {val}")
+                print(f"[initiate_and_run_eryn_sampler] Setting '{key}' to {val}")
     
     # some common mistakes
     if sampler_dict['thin_by'] <=0:
@@ -209,7 +209,6 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
         )
 
     return sampler
-
 
 def save_truths_as_json(truths_dict, save_path):
     """Save ground truth dictionary to JSON."""
