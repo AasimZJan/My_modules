@@ -120,7 +120,7 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
         "start_state": get_start_state_from_prior(sampler_dict),
         "iterations": 1000,
         "burnin_iterations": 6000,
-        "thin_by": None,
+        "thin_by": 0,
         "store": True,
         "h5_file": os.path.join(os.getcwd(), "eryn_output.h5"),
     }
@@ -165,9 +165,9 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
 
     # Common kwargs for EnsembleSampler
     sampler_kwargs = dict(
-        nwalkers=int(sampler_dict["number_of_walkers"]),
-        ndim=ndims,
-        logl= sampler_dict["log_likelihood_function"],
+        nwalkers = int(sampler_dict["number_of_walkers"]),
+        ndims = ndims,
+        log_like_fn = sampler_dict["log_likelihood_function"],
         priors=sampler_dict["priors"],
         nbranches=nbranches,
         branch_names=branch_names,
