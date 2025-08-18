@@ -7,6 +7,7 @@ from eryn.ensemble import EnsembleSampler
 from eryn.backends import HDFBackend
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
+import multiprocessing
 
 class NumpyEncoder(json.JSONEncoder):
     """Custom JSON encoder to handle NumPy arrays."""
@@ -15,101 +16,6 @@ class NumpyEncoder(json.JSONEncoder):
             return obj.tolist()
         return super().default(obj)
     
-
-def initiate_eryn_sampler(sampler_dictionary, verbose=False, save_sampler_dictionary=True):
-    """
-    Initialize and return an Eryn EnsembleSampler based on the given configuration.
-
-    Parameters
-    ----------
-    sampler_dictionary : dict
-        Dictionary containing all the necessary configuration for the sampler.
-        Expected keys:
-            - 'number_of_walkers' : int
-                Number of walkers per temperature.
-            - 'number_of_temperatures' : int
-                Number of temperature levels for tempering.
-            - 'priors' : dict
-                Priors for each branch.
-            - 'log_likelihood_function' : callable
-                Log-likelihood function for the sampler.
-            - 'extra_log_likelihood_arguments' : tuple
-                Additional positional arguments to pass to the log-likelihood function.
-            - 'models' : dict
-                Keys are branch names, values are tuples of:
-                (number_of_dimensions, min_possible_instances, max_possible_instances).
-            - 'reveresible_jump_moves' : list or bool
-                Reversible-jump MCMC moves (or flag to enable them).
-            - 'moves' : list
-                Additional sampler moves.
-            - 'h5_file_path' : str
-                Path to the HDF5 file for storing sampler output.
-        (Other keys may be required depending on EnsembleSampler setup.)
-
-    verbose : bool, optional
-        If True, prints details about the initialized sampler. Default is False.
-
-    save_sampler_dictionary : bool, optional
-        If True (default), saves a JSON copy of the sampler configuration
-        (with non-serializable objects removed) in the same directory as
-        the provided HDF5 file.
-
-    Returns
-    -------
-    EnsembleSampler
-        An initialized Eryn EnsembleSampler instance.
-    """
-    # work on a copy of the dictionary
-    sampler_dict = sampler_dictionary.copy()
-    # get branches and number of branches from the dictionary
-    branch_names = list(sampler_dict['models'].keys())
-    nbranches = len(branch_names)   
-    # get number of dimensions for each model, max number of leaves and min number of leaves
-    ndims = {branch_name: int(sampler_dict['models'][branch_name][0]) for branch_name in branch_names}
-    nleaves_min = {branch_name: int(sampler_dict['models'][branch_name][1]) for branch_name in branch_names}
-    nleaves_max = {branch_name: int(sampler_dict['models'][branch_name][2]) for branch_name in branch_names}
-    
-    # initiate sampler
-    sampler = EnsembleSampler(
-                            int(sampler_dict['number_of_walkers']),
-                            ndims,      
-                            sampler_dict['log_likelihood_function'],
-                            sampler_dict['priors'],      
-                            nbranches=nbranches, 
-                            branch_names=branch_names,  # order determines order of parameter sets in Likelihood
-                            tempering_kwargs=dict(ntemps=int(sampler_dict['number_of_temperatures']), Tmax=np.inf),
-                            args=sampler_dict['extra_log_likelihood_arguments'],
-                            rj_moves=sampler_dict['reveresible_jump_moves'],
-                            moves=sampler_dict['moves'],
-                            nleaves_max=nleaves_max,
-                            nleaves_min=nleaves_min,
-                            backend = HDFBackend(sampler_dict['h5_file_path'])
-                            )
-
-    # print for sanity checks
-    if verbose:
-        print(f"Eryn sampler initiated with {sampler_dict['number_of_temperatures']} temperatures and {sampler_dict['number_of_walkers']} walkers per temperature.")
-        for name in branch_names:
-            print(f'For model "{name}", number of dimensions: {ndims[name]}, min/max instances: {nleaves_min[name]}/{nleaves_max[name]}')
-    
-    # save the sampler_dictionary if requested (with unserializable objects removed)
-    if save_sampler_dictionary:
-        path = '/'.join(sampler_dict['h5_file_path'].split('/')[:-1])
-        # remove objects that json doesn't like
-        for key in ["priors", "moves", "log_likelihood_function", "extra_log_likelihood_arguments"]:
-            sampler_dict.pop(key, None)
-        # save json
-        filename = f'{path}/sampler_dict.json'
-        try:
-            with open(filename, 'w') as f:
-                json.dump(sampler_dict, f)
-            if verbose:
-                print(f"Sampler dictionary successfully saved to {filename}")
-        except IOError as e:
-            print(f"Error saving file: {e}")
-    # return sampler object
-    return sampler
-
 def get_start_state_from_prior(sampler_dict):
     """
     Generate initial sampler states by drawing from the prior distributions.
@@ -145,6 +51,160 @@ def get_start_state_from_prior(sampler_dict):
                 )) 
             for name in branch_names
             }
+
+def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sampler_dictionary=True):
+    """
+    Initialize and run an Eryn EnsembleSampler based on the given configuration.
+
+    Parameters
+    ----------
+    sampler_dictionary : dict
+        Dictionary containing all configuration options for the sampler.
+        Required keys:
+            - number_of_walkers : int
+                Number of walkers per temperature.
+            - number_of_temperatures : int
+                Number of temperature levels for parallel tempering.
+            - priors : dict
+                Priors for each branch.
+            - log_likelihood_function : callable
+                Log-likelihood function for the sampler.
+            - extra_log_likelihood_arguments : tuple
+                Additional positional arguments passed to the log-likelihood function.
+            - models : dict
+                Dictionary where keys are branch names and values are tuples of:
+                (ndims, min_instances, max_instances).
+            - reversible_jump_moves : bool
+                Reversible-jump MCMC moves, or a flag to enable them.
+            - moves : list
+                Additional sampler moves.
+            - h5_file : str
+                Path to the HDF5 file for sampler backend storage.
+
+        Optional keys (with defaults):
+            - pool : multiprocessing.Pool or None, default None
+                Multiprocessing pool for parallel likelihood evaluation.
+            - pool_processes : int, default 4
+                Number of processes to use if pool is enabled.
+            - start_state : ndarray, default drawn from prior
+                Initial state of the walkers.
+            - iterations : int, default 1000
+                Number of MCMC iterations.
+            - burnin_iterations : int, default 6000
+                Number of burn-in iterations.
+            - thin_by : int or None, default None
+                Thinning factor for chain storage.
+            - store : bool, default True
+                Whether to store samples in the backend.
+
+    verbose : bool, optional
+        If True, prints detailed information about sampler setup. Default is False.
+
+    save_sampler_dictionary : bool, optional
+        If True, saves a JSON copy of the sampler configuration
+        (with non-serializable objects removed) in the same directory as
+        the provided HDF5 file. Default is True.
+
+    Returns
+    -------
+    sampler : EnsembleSampler
+        The initialized and run Eryn EnsembleSampler instance.
+    """
+    # work on a copy of the dictionary
+    sampler_dict = sampler_dictionary.copy()
+    
+    # check arguments and assign default values for ease
+    defaults = {
+        "pool": None,
+        "pool_processes": 4,
+        "start_state": get_start_state_from_prior(sampler_dict),
+        "iterations": 1000,
+        "burnin_iterations": 6000,
+        "thin_by": None,
+        "store": True,
+        "h5_file": os.path.join(os.getcwd(), "eryn_output.h5"),
+    }
+    for key, val in defaults.items():
+        if key not in sampler_dict:
+            sampler_dict[key] = val
+            if verbose:
+                print(f"[initiate_and_run_eryn_sampler] Setting default for '{key}' → {val}")
+    	
+    # get branches and number of branches from the dictionary
+    branch_names = list(sampler_dict['models'].keys())
+    nbranches = len(branch_names)   
+    # get number of dimensions for each model, max number of leaves and min number of leaves
+    ndims = {branch_name: int(sampler_dict['models'][branch_name][0]) for branch_name in branch_names}
+    nleaves_min = {branch_name: int(sampler_dict['models'][branch_name][1]) for branch_name in branch_names}
+    nleaves_max = {branch_name: int(sampler_dict['models'][branch_name][2]) for branch_name in branch_names}
+   
+    # print for sanity checks
+    if verbose:
+        print(f"Eryn sampler initiated with {sampler_dict['number_of_temperatures']} temperatures and {sampler_dict['number_of_walkers']} walkers per temperature.")
+        for name in branch_names:
+            print(f'For model "{name}", number of dimensions: {ndims[name]}, min/max instances: {nleaves_min[name]}/{nleaves_max[name]}')
+    
+    # save the sampler_dictionary if requested (with unserializable objects removed)
+    if save_sampler_dictionary:
+        sampler_dict_save = sampler_dict.copy()
+        path = os.path.dirname(os.path.abspath(sampler_dict["h5_file"]))
+        
+        # remove objects that json doesn't like
+        for key in ["priors", "moves", "log_likelihood_function", "extra_log_likelihood_arguments", "start_state"]:
+            sampler_dict_save.pop(key, None)
+        
+        # save json
+        filename = f'{path}/sampler_dict.json'
+        try:
+            with open(filename, 'w') as f:
+                json.dump(sampler_dict_save, f)
+            if verbose:
+                print(f"Sampler dictionary successfully saved to {filename}")
+        except IOError as e:
+            print(f"Error saving file: {e}")  
+
+    # Common kwargs for EnsembleSampler
+    sampler_kwargs = dict(
+        nwalkers=int(sampler_dict["number_of_walkers"]),
+        ndim=ndims,
+        logl= sampler_dict["log_likelihood_function"],
+        priors=sampler_dict["priors"],
+        nbranches=nbranches,
+        branch_names=branch_names,
+        tempering_kwargs=dict(ntemps=int(sampler_dict["number_of_temperatures"]), Tmax=np.inf),
+        args=sampler_dict["extra_log_likelihood_arguments"],
+        rj_moves=sampler_dict["reversible_jump_moves"],
+        moves=sampler_dict["moves"],
+        nleaves_max=nleaves_max,
+        nleaves_min=nleaves_min,
+        backend=HDFBackend(sampler_dict["h5_file"]),
+    )
+
+    # Initialize sampler with or without multiprocessing
+    if sampler_dict["pool"] is not None:
+        with multiprocessing.Pool(processes=int(sampler_dict["pool_processes"])) as pool:
+            sampler = EnsembleSampler(**sampler_kwargs, pool=pool)
+            sampler.run_mcmc(
+                sampler_dict["start_state"],
+                sampler_dict["iterations"],
+                burn=sampler_dict["burnin_iterations"],
+                progress=True,
+                thin_by=sampler_dict["thin_by"],
+                store=sampler_dict["store"],
+            )
+    else:
+        sampler = EnsembleSampler(**sampler_kwargs, pool=None)
+        sampler.run_mcmc(
+            sampler_dict["start_state"],
+            sampler_dict["iterations"],
+            burn=sampler_dict["burnin_iterations"],
+            progress=True,
+            thin_by=sampler_dict["thin_by"],
+            store=sampler_dict["store"],
+        )
+
+    return sampler
+
 
 def save_truths_as_json(truths_dict, save_path):
     """Save ground truth dictionary to JSON."""
