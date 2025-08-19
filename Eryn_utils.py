@@ -152,7 +152,7 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose: bool = False, sav
     if verbose:
         print(f"Eryn sampler initiated with {sampler_dict['number_of_temperatures']} temperatures and {sampler_dict['number_of_walkers']} walkers per temperature.")
         for name in branch_names:
-            print(f'For model "{name}", number of dimensions: {ndims[name]}, min/max instances: {nleaves_min[name]}/{nleaves_max[name]}')
+            print(f'\tFor model "{name}", number of dimensions: {ndims[name]}, min/max instances: {nleaves_min[name]}/{nleaves_max[name]}')
     
     # save the sampler_dictionary if requested (with unserializable objects removed)
     if save_sampler_dictionary:
