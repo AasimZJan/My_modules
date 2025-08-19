@@ -52,58 +52,60 @@ def get_start_state_from_prior(sampler_dict):
             for name in branch_names
             }
 
-def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sampler_dictionary=True):
+def initiate_and_run_eryn_sampler(sampler_dictionary, verbose: bool = False, save_sampler_dictionary: bool = True):
     """
     Initialize and run an Eryn EnsembleSampler based on the given configuration.
 
     Parameters
     ----------
     sampler_dictionary : dict
-        Dictionary containing all configuration options for the sampler.
-        Required keys:
-            - number_of_walkers : int
-                Number of walkers per temperature.
-            - number_of_temperatures : int
-                Number of temperature levels for parallel tempering.
-            - priors : dict
-                Priors for each branch.
-            - log_likelihood_function : callable
-                Log-likelihood function for the sampler.
-            - extra_log_likelihood_arguments : tuple
-                Additional positional arguments passed to the log-likelihood function.
-            - models : dict
-                Dictionary where keys are branch names and values are tuples of:
-                (ndims, min_instances, max_instances).
-            - reversible_jump_moves : bool
-                Reversible-jump MCMC moves, or a flag to enable them.
-            - moves : list
-                Additional sampler moves.
-            - h5_file : str
-                Path to the HDF5 file for sampler backend storage.
+        Dictionary containing configuration options for the sampler.
 
-        Optional keys (with defaults):
-            - pool : multiprocessing.Pool or None, default None
-                Multiprocessing pool for parallel likelihood evaluation.
-            - pool_processes : int, default 4
-                Number of processes to use if pool is enabled.
-            - start_state : ndarray, default drawn from prior
-                Initial state of the walkers.
-            - iterations : int, default 1000
-                Number of MCMC iterations.
-            - burnin_iterations : int, default 6000
-                Number of burn-in iterations.
-            - thin_by : int or None, default None
-                Thinning factor for chain storage.
-            - store : bool, default True
-                Whether to store samples in the backend.
+        Required keys
+        -------------
+        - priors : dict
+            Priors for each branch.
+        - log_likelihood_function : callable
+            Log-likelihood function for the sampler.
+        - extra_log_likelihood_arguments : tuple
+            Additional positional arguments passed to the log-likelihood function.
+        - models : dict
+            Dictionary where keys are branch names and values are tuples of:
+            (ndims, min_instances, max_instances).
+        - reversible_jump_moves : bool or list
+            Flag or list of reversible-jump moves.
+        - moves : list
+            Additional sampler moves.
+
+        Optional keys (with defaults)
+        ------------------------------
+        - number_of_walkers : int, default 30
+            Number of walkers per temperature.
+        - number_of_temperatures : int, default 10
+            Number of temperature levels for parallel tempering.
+        - pool : bool, default False
+            Whether to use multiprocessing pool for parallel likelihood evaluation.
+        - pool_processes : int, default 4
+            Number of processes to use if pool is enabled.
+        - start_state : ndarray, default drawn from prior
+            Initial state of the walkers.
+        - iterations : int, default 1000
+            Number of MCMC iterations.
+        - burnin_iterations : int, default 6000
+            Number of burn-in iterations.
+        - thin_by : int, default 1
+            Thinning factor for stored chain samples.
+        - store : bool, default True
+            Whether to store samples in the backend.
+        - h5_file : str
+            Path (including filename) to the HDF5 file for sampler backend storage. By default it saves the h5 file as eryn_output.h5 in current working directory.
 
     verbose : bool, optional
-        If True, prints detailed information about sampler setup. Default is False.
+        If True, prints detailed setup information. Default is False.
 
     save_sampler_dictionary : bool, optional
-        If True, saves a JSON copy of the sampler configuration
-        (with non-serializable objects removed) in the same directory as
-        the provided HDF5 file. Default is True.
+        If True, saves a JSON copy of the sampler configuration (with non-serializable
+        objects removed) in the same directory as the provided HDF5 file. Default is True.
 
     Returns
     -------
@@ -115,7 +117,7 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
     
     # check arguments and assign default values for ease
     defaults = {
-        "pool": None,
+        "pool": False,
         "pool_processes": 4,
         "start_state": get_start_state_from_prior(sampler_dict),
         "iterations": 1000,
@@ -123,16 +125,19 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
         "thin_by": 1,
         "store": True,
         "h5_file": os.path.join(os.getcwd(), "eryn_output.h5"),
+        "number_of_walkers": 30,
+        "number_of_temperatures": 10,
     }
     for key, val in defaults.items():
+        print(f"Parsing through sampler dictionary")
         if key not in sampler_dict:
             sampler_dict[key] = val
             if verbose:
-                print(f"[initiate_and_run_eryn_sampler] Setting '{key}' to {val}")
+                print(f"\tSetting '{key}' to {val}")
     
-    # some common mistakes
-    if sampler_dict['thin_by'] <=0:
-        print(f'Warning: Cannot have "thin_by" be <= 0, setting it to default of {defaults["thin_by"]}')
+    # handling some common mistakes
+    if sampler_dict['thin_by'] <= 0:
+        print(f'Warning: Invalid "thin_by" = {sampler_dict['thin_by']} (must be > 0), setting it to default of {defaults["thin_by"]}')
         sampler_dict['thin_by'] = defaults['thin_by']
     	
     # get branches and number of branches from the dictionary
@@ -186,7 +191,7 @@ def initiate_and_run_eryn_sampler(sampler_dictionary, verbose=False, save_sample
     )
 
     # Initialize sampler with or without multiprocessing
-    if sampler_dict["pool"] is not None:
+    if sampler_dict["pool"] is not False:
         with multiprocessing.Pool(processes=int(sampler_dict["pool_processes"])) as pool:
             sampler = EnsembleSampler(**sampler_kwargs, pool=pool)
             sampler.run_mcmc(
@@ -216,7 +221,7 @@ def save_truths_as_json(truths_dict, save_path):
     try:
         with open(filename, 'w') as f:
             json.dump(truths_dict, f, cls=NumpyEncoder)
-            print(f"Dictionary successfully saved to {filename}")
+            print(f"Truths dictionary successfully saved to {filename}")
     except IOError as e:
         print(f"Error saving file: {e}")
 
